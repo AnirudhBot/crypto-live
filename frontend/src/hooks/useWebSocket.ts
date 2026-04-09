@@ -1,24 +1,76 @@
-import { useEffect, useRef, useState } from 'react';
-import { PriceUpdate } from '../types';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import type { Coin, PriceAlert, WebSocketMessage } from '../types';
 
 const WS_URL = 'ws://localhost:8080/ws';
+const RECONNECT_DELAY = 3000;
 
 export function useWebSocket() {
-  const [prices, setPrices] = useState<Map<string, number>>(new Map());
+  const [coins, setCoins] = useState<Coin[]>([]);
+  const [triggeredAlerts, setTriggeredAlerts] = useState<PriceAlert[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    // TODO: Implement WebSocket connection
-    // 1. Create WebSocket connection to WS_URL
-    // 2. Handle onopen, onclose, onerror events
-    // 3. Handle onmessage to parse PriceUpdate and update prices state
-    // 4. Implement reconnection logic
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
 
-    return () => {
-      wsRef.current?.close();
+    const ws = new WebSocket(WS_URL);
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      setIsConnected(true);
     };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+      setIsConnected(false);
+
+      // Attempt to reconnect
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        console.log('Attempting to reconnect...');
+        connect();
+      }, RECONNECT_DELAY);
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message: WebSocketMessage = JSON.parse(event.data);
+
+        if (message.type === 'price_update') {
+          setCoins(message.data);
+
+          if (message.alerts && message.alerts.length > 0) {
+            setTriggeredAlerts(prev => [...prev, ...message.alerts!]);
+          }
+        }
+      } catch (err) {
+        console.error('Error parsing WebSocket message:', err);
+      }
+    };
+
+    wsRef.current = ws;
   }, []);
 
-  return { prices, isConnected };
+  const clearTriggeredAlerts = useCallback(() => {
+    setTriggeredAlerts([]);
+  }, []);
+
+  useEffect(() => {
+    connect();
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      wsRef.current?.close();
+    };
+  }, [connect]);
+
+  return { coins, isConnected, triggeredAlerts, clearTriggeredAlerts };
 }

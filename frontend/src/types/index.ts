@@ -20,7 +20,8 @@ export interface PriceAlert {
   is_triggered: boolean;
 }
 
-export interface PriceUpdate {
-  coin_id: string;
-  price: number;
+export interface WebSocketMessage {
+  type: 'price_update';
+  data: Coin[];
+  alerts?: PriceAlert[];
 }
